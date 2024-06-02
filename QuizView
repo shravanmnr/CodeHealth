@@ -1,0 +1,950 @@
+using HexasphereGrid;
+using JetBrains.Annotations;
+using SVR.UI;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using TMPro;
+using Unity.VisualScripting;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.Video;
+using static QuestionType;
+
+public class QuizView : MonoBehaviour
+{
+    public CameraController cameraController;
+
+    public GameObject[] panels;
+    private QueType questionType;
+
+    public GameObject generalInstructions;
+    public GameObject sessionInstructions;
+    public GameObject questionPanel;
+    public GameObject videoPanel;
+    public GameObject videoPanelVR;
+    public TextMeshProUGUI sessionInstructionTitle;
+
+    public PanelManager panelManagerScript;
+
+    //terms and conditions toggle
+    public Toggle generalInstructionToggle;
+    public Toggle sessionInstructionToggle;
+    public TextMeshProUGUI warningText;
+
+    public GameObject sessionCompletePanel;
+    public TextMeshProUGUI sessionEndText;
+    public TextMeshProUGUI attemptedQuestionText;
+    public GameObject testEndPanel;
+    public GameObject testCompletedPanel;
+
+    public GameObject gridGenerator;
+    public GameObject answerPanel;
+
+    private VideoPlayer videoPlayer;
+    private VideoPlayer videoPlayerVR;
+    public TextMeshProUGUI questionNoText;
+    public TextMeshProUGUI questionText;
+    public TextMeshProUGUI questionTextAnswerPanel;
+    public Material materialVR, materialSkyBox;
+
+    //Timed
+    public float startTime; // Start time for the timer
+    public float endTime;
+    public float elapsedTime;
+    public delegate void SpacebarPressEvent();
+    public static event SpacebarPressEvent OnSpacebarPress;
+    public GameObject timerControllerPanel;
+    public TimerController timerController;
+    public GameObject questionPanelTimerText, answerPanelTimerText;
+    public GameObject confirmPanel;
+    public int _totalQuestionCount;
+    public int _currentQuestionNo;
+    public int _givenAnsCount;
+
+    public Transform questionIndexTransform;
+    public ActiveQuestionIndex questionIndexPrefab;
+
+    private string _question;
+    private VideoClip _videoClip;
+    public SessionType _sessionType;
+    private string[] _possibleAnswers;
+    private int _correctIndex;
+    public bool virtualRealityActive;
+    public GameObject viewEnvironment;
+    public Canvas canvas;
+
+    public ActiveUser activeUserData;
+
+    [SerializeField]
+    private Button _nextButton;
+
+    [SerializeField]
+    private GridLayoutGroup _answerGridParent;
+
+    [SerializeField]
+    private GridLayoutGroup _answerGridParentprefab;
+
+    public List<GridLayoutGroup> newGridLayout;
+
+    [SerializeField]
+    private GridLayoutGroup _answersRowParent;
+
+    [SerializeField]
+    private Transform _answerParent;
+
+    [SerializeField]
+    private AnswerButton _answerButton;
+
+    public List<AnswerButton> _answerButtons;
+
+    [SerializeField]
+    public Session sessions;
+
+    [SerializeField]
+    public QuestionDataByUser userQuestionData;
+
+    public bool isTestExited;
+
+    public bool popupDisplayed = false;
+
+    public QuizManager quizManager;
+
+    public TextMeshProUGUI instructionPrefab;
+    public GameObject pauseInstructionPrefab;
+    public Transform parentTransform;
+    public Transform pauseParentTransform;
+    private TextMeshProUGUI instructionNumber;
+    List<TextMeshProUGUI> sessionInstructionsList = new List<TextMeshProUGUI>();
+    List<TextMeshProUGUI> instantiatedNumbers = new List<TextMeshProUGUI>();
+    List<TextMeshProUGUI> pauseInstructionsList = new List<TextMeshProUGUI>();
+    List<TextMeshProUGUI> pauseInstantiatedNumbers = new List<TextMeshProUGUI>();
+    private int titleNumber = 1;
+    private int pauseTitleNumber = 1;
+
+    private static QuizView instance;
+
+    public static QuizView Instance
+    {
+        get
+        {
+            if (instance == null)
+            {
+                instance = new QuizView();
+            }
+            return instance;
+        }
+    }
+
+    private void Start()
+    {
+        videoPlayer = videoPanel.GetComponent<VideoPlayer>();
+        videoPlayerVR = videoPanelVR.GetComponent<VideoPlayer>();
+        generalInstructionToggle.isOn = false;
+    }
+
+    private void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            OnSpacebarPress?.Invoke();
+        }
+    }
+
+    public void SetQuestion(QuizData quizData, int totalQuestionCount, int currentQuestionNo, bool doRandomizeChoices = true)                              //Brings Question data in View Using ROLLQUESTION
+    {
+        //if (doRandomizeChoices)
+        //{
+        //    RandomizeChoices(ref quizData);
+        //}
+        _totalQuestionCount = totalQuestionCount;
+        _currentQuestionNo = currentQuestionNo;
+        _question = quizData.Question;
+        _videoClip = quizData.VideoClip;
+        _possibleAnswers = quizData.Answers;
+        _correctIndex = quizData.CorrectIndex;
+        _sessionType = quizData.SessionType;
+    }
+    public void SetQuestion(QuizData quizData, bool doRandomizeChoices = true)     // Demo Question                         //Brings Question data in View Using ROLLQUESTION
+    {
+        //if (doRandomizeChoices)
+        //{
+        //    RandomizeChoices(ref quizData);
+        //}
+
+        _question = quizData.Question;
+        _videoClip = quizData.VideoClip;
+        _possibleAnswers = quizData.Answers;
+        _correctIndex = quizData.CorrectIndex;
+        _sessionType = quizData.SessionType;
+    }
+
+    public async void SetupSessionInstructions()                                                                  //SessionInstruction From GeneralInstruction 
+    {
+        Debug.Log("Popup displayed bool is: " + popupDisplayed);
+        if (!popupDisplayed)
+        {
+            confirmPanel.SetActive(true);
+        }
+        sessionInstructionToggle.isOn = false;
+        if (generalInstructionToggle.isOn)
+        {
+            if (popupDisplayed)
+            {
+                sessions = new Session();
+                sessions.Questions = new List<QuestionDataByUser>();
+                sessionInstructions.SetActive(true);
+                generalInstructions.SetActive(false);
+                SetSessionInstructionspanel(_sessionType);
+                sessions.SessionType = _sessionType.ToString();
+                _givenAnsCount = _totalQuestionCount;
+            }
+        }
+        else
+        {
+            Debug.LogError("Accept the conditions");
+            warningText.gameObject.SetActive(true);
+            await Task.Delay(2000);
+            warningText.gameObject.SetActive(false);
+        }
+    }
+
+    public void ReadAllConditions()
+    {
+        popupDisplayed = true;
+    }
+    public void SetSessionInstructionspanel(SessionType sessionType)
+    {
+        sessionInstructions.SetActive(true);
+        InstantiateInstructions();
+        sessionInstructionTitle.text = "Session Instructions : " + ConvertCamelCase(sessionType.ToString());
+    }
+
+    public async void SetupQuestionPanel()                                                                        //Show QuestionPanel with Question
+    {
+        Debug.Log("SetupQuestionPanel");
+        if (sessionInstructionToggle.isOn)
+        {
+            //Add Session data in active user
+            Clearpanels();
+            questionPanel.SetActive(true);
+            questionText.text = _question;
+            questionNoText.text = "Question " + _currentQuestionNo;
+
+            for (int i = 0; i < questionIndexTransform.childCount; i++)
+            {
+                // Destroy each child object
+                Destroy(questionIndexTransform.GetChild(i).gameObject);
+            }
+            ActiveQuestionIndex questionIndex = Instantiate(questionIndexPrefab, questionIndexTransform);
+            questionIndex.InstantiateQuestionIndex(_totalQuestionCount, _currentQuestionNo);
+            DetermineQuestionType();
+            sessionInstructions.SetActive(false);
+            questionPanelTimerText.SetActive(true);
+            questionPanelTimerText.GetComponent<TimerController>().onTimeLimitReached += SetupVideo;
+            questionPanelTimerText.GetComponent<TextMeshProUGUI>().text = "Video will play in 10";
+            questionPanelTimerText.GetComponent<TimerController>().StartTimer(false, 10, "Video will play in ");                          
+            userQuestionData = new QuestionDataByUser();
+            userQuestionData.Question = _question;
+
+            if (questionType == QueType.Location || questionType == QueType.Timed)
+            {
+                userQuestionData.CorrectAnswer = new List<string>();
+                userQuestionData.CorrectAnswer = _possibleAnswers.ToList();
+            }
+            else
+            {
+                userQuestionData.CorrectAnswer = new List<string>();
+                userQuestionData.CorrectAnswer.Add(_possibleAnswers[_correctIndex]);
+            }
+        }
+        else
+        {
+            Debug.LogError("Accept the conditions");
+            warningText.gameObject.SetActive(true);
+            await Task.Delay(2000);
+            warningText.gameObject.SetActive(false);
+        }
+
+
+    }
+    private void QuestionPanelTimer_onTimeLimitReached()                                                        //Fires if QuestionPanel Times out
+    {
+        Debug.Log("QuestionPanelTimer_onTimeLimitReached");
+        questionPanelTimerText.GetComponent<TimerController>().isTimerRunning = false;
+        questionPanelTimerText.GetComponent<TimerController>().onTimeLimitReached -= QuestionPanelTimer_onTimeLimitReached;
+        questionPanelTimerText.GetComponent<TimerController>().ResetTimer();
+        SetupVideo();
+    }
+    public void DetermineQuestionType()
+    {
+        if (_sessionType == SessionType.SearchWoodedAreasForSubject || _sessionType == SessionType.SearchWoodedAreasForBlood || _sessionType == SessionType.SearchBuildingForSubject || _sessionType == SessionType.SearchBuildingForEvidence)
+        {
+            questionType = QueType.Location;
+        }
+        else if (_sessionType == SessionType.CommunicateDiscriptionOfVehicle || _sessionType == SessionType.CommunicateDiscriptionOfIndividuals)
+        {
+            questionType = QueType.Timed;
+        }
+        else if (_sessionType == SessionType.DistinguishBombWiringColors || _sessionType == SessionType.DistinguishColorsAtTrafficSignals)
+        {
+            questionType = QueType.Accuracy;
+        }
+    }
+
+    public void SetupVideo()                                                                                 //Setting Up Videopanel And its timer
+    {
+        Debug.Log("SetupVideo");
+        Debug.Log("QuestionPanelTimer_onTimeLimitReached");
+        questionPanelTimerText.GetComponent<TimerController>().isTimerRunning = false;
+        questionPanelTimerText.GetComponent<TimerController>().onTimeLimitReached -= SetupVideo;
+        questionPanelTimerText.GetComponent<TimerController>().ResetTimer();
+        Clearpanels();
+        PlayVideo();
+
+    }
+
+    private void ActionRight_started(UnityEngine.InputSystem.InputAction.CallbackContext obj)
+    {
+        GameManager.Instance.VRPlayer.GetComponent<OnTriggerPress>().actionRight.started -= ActionRight_started;
+        CheckTimer();
+    }
+
+    public void PlayVideo()                                                                                 //plays video on VR screen or 2D panel
+    {
+
+
+        if (GameManager.Instance.isVrApplication)
+        {
+            videoPlayerVR.loopPointReached += OnVideoEnd;
+            StartCoroutine(FadeInCanvas());
+
+        }
+        else
+        {
+            
+            videoPlayerVR.loopPointReached += OnVideoEnd;
+            StartCoroutine(FadeInCanvas());
+            RenderSettings.skybox.SetFloat("_Rotation", 60f);
+            cameraController.isEnabled = true;
+
+            if (questionType == QueType.Accuracy)
+            {
+                Debug.Log("SetupVideo for " + questionType);
+            }
+            else if (questionType == QueType.Timed)
+            {
+                Debug.Log("SetupVideo for " + questionType);
+                OnSpacebarPress += CheckTimer;
+                GameManager.Instance.VRPlayer.GetComponent<OnTriggerPress>().actionRight.started += ActionRight_started;
+                timerControllerPanel.SetActive(true);
+                startTime = float.Parse(_possibleAnswers[0]);
+                endTime = float.Parse(_possibleAnswers[1]);
+                timerController.StartTimer(true, 0, "");                                      
+            }
+            else if (questionType == QueType.Location)
+            {
+                Debug.Log("SetupVideo for " + questionType);
+                
+            }
+        }
+    }
+    void Hexasphere_OnTileClick(Hexasphere hexasphere, int tileIndex)
+    {
+        GameManager.Instance.hexasphere.OnTileClick -= Hexasphere_OnTileClick;
+        GameManager.Instance.hexasphere.gameObject.SetActive(false);
+        ValidateTileAnswer(tileIndex);
+    }
+
+    void ValidateTileAnswer(int tileIndex)
+    {
+        //Validate location type question
+        for(int i=0 ; i< _possibleAnswers.Length; i++)
+        {
+            if(tileIndex.ToString() == _possibleAnswers[i])
+            {
+                userQuestionData.IsCorrectAnswer = true;
+                userQuestionData.GivenAnswer = tileIndex.ToString();
+                break;
+            }
+            else
+            {
+                userQuestionData.IsCorrectAnswer = false; 
+                userQuestionData.GivenAnswer = tileIndex.ToString();
+            }
+        }
+
+        if (GameManager.Instance.isVrApplication)
+        {
+            StartCoroutine(FadeOutCanvas());
+            videoPlayerVR.clip = null;
+            videoPlayerVR.loopPointReached -= OnVideoEnd;
+            Debug.Log("Video Ended  " + videoPlayerVR.gameObject.name);
+            CheckSessionCompleted();
+        }
+        else
+        {
+            StartCoroutine(FadeOutCanvas());
+            cameraController.isEnabled = false;
+            cameraController.ResetCamera();
+            videoPlayerVR.targetTexture.Release();
+            videoPlayerVR.clip = null;
+            videoPlayerVR.loopPointReached -= OnVideoEnd;
+            Debug.Log("Video Ended  " + videoPlayerVR.gameObject.name);
+            CheckSessionCompleted();
+        }
+    }
+    IEnumerator FadeInCanvas()
+    {
+        GameManager.Instance.fadeCanvas.FadeIn();
+        yield return new WaitForSeconds(1);
+        viewEnvironment.SetActive(false);
+        canvas.enabled = false;
+        questionPanel.SetActive(false);
+        videoPanelVR.SetActive(true);
+        videoPlayerVR.clip = _videoClip;
+        RenderSettings.skybox = materialVR;
+        viewEnvironment.SetActive(false);
+        videoPlayerVR.targetTexture.Create();
+        videoPlayerVR.Play();
+
+        if (questionType == QueType.Accuracy)
+        {
+            Debug.Log("SetupVideo for " + questionType);
+        }
+        else if (questionType == QueType.Timed)
+        {
+            Debug.Log("SetupVideo for " + questionType);
+            OnSpacebarPress += CheckTimer;
+            GameManager.Instance.VRPlayer.GetComponent<OnTriggerPress>().actionRight.started += ActionRight_started;
+            timerControllerPanel.SetActive(true);
+            startTime = float.Parse(_possibleAnswers[0]);
+            endTime = float.Parse(_possibleAnswers[1]);
+            timerController.StartTimer(true, 0, "");                                      
+        }
+        else if (questionType == QueType.Location)
+        {
+            Debug.Log("SetupVideo for " + questionType); GameManager.Instance.hexasphere.gameObject.SetActive(true);
+            //if(GameManager.Instance.isVrApplication) GameManager.Instance.hexasphere.VREnabled = true;
+            GameManager.Instance.hexasphere.OnTileClick += Hexasphere_OnTileClick;
+        }
+    }
+
+    IEnumerator FadeOutCanvas()
+    {
+        GameManager.Instance.fadeCanvas.FadeOut();
+        yield return new WaitForSeconds(1);
+        RenderSettings.skybox = materialSkyBox;
+        viewEnvironment.SetActive(true);
+        canvas.enabled = true;
+        videoPlayerVR.targetTexture.Release();
+    }
+    public void OnVideoEnd(VideoPlayer videoPlayer)
+    {
+        if (GameManager.Instance.isVrApplication)
+        {
+            StartCoroutine(FadeOutCanvas());
+            videoPlayerVR.clip = null;
+            videoPlayerVR.loopPointReached -= OnVideoEnd;
+            Debug.Log("Video Ended  " + videoPlayerVR.gameObject.name);
+        }
+
+
+        else
+        {
+            StartCoroutine(FadeOutCanvas());
+            videoPlayerVR.clip = null;
+            videoPlayerVR.loopPointReached -= OnVideoEnd;
+            Debug.Log("Video Ended  " + videoPlayerVR.gameObject.name);
+            videoPlayerVR.clip = null;
+            Debug.Log("Video Ended  " + videoPlayerVR.gameObject.name);
+        }
+
+
+
+        Clearpanels();
+        if (questionType == QueType.Accuracy)
+        {
+            SetupOptionsPanel();
+        }
+        else if (questionType == QueType.Timed)
+        {
+            timerController.isTimerRunning = false;
+            CheckSessionCompleted(); // Timed Video Complete
+            timerControllerPanel.SetActive(false);
+
+        }
+        else if (questionType == QueType.Location)
+        {
+            GameManager.Instance.hexasphere.OnTileClick -= Hexasphere_OnTileClick;
+            GameManager.Instance.hexasphere.gameObject.SetActive(false);
+            CheckSessionCompleted();
+        }
+    }
+    public void CheckTimer()                                                                                 //Checks if trigger is pressed within time range
+    {
+        OnSpacebarPress -= CheckTimer;
+        GameManager.Instance.VRPlayer.GetComponent<OnTriggerPress>().actionRight.started -= ActionRight_started;
+        if (GameManager.Instance.isVrApplication)
+        {
+            StartCoroutine(FadeOutCanvas());
+            videoPlayerVR.targetTexture.Release();
+            videoPlayerVR.clip = null;
+            videoPlayerVR.loopPointReached -= OnVideoEnd;
+            Debug.Log("Video Ended  " + videoPlayerVR.gameObject.name);
+        }
+
+        else
+        {
+            cameraController.isEnabled = false;
+            cameraController.ResetCamera();
+            RenderSettings.skybox = materialSkyBox;
+            viewEnvironment.SetActive(true);
+            canvas.enabled = true;
+            videoPlayerVR.targetTexture.Release();
+            videoPlayerVR.clip = null;
+            videoPlayerVR.loopPointReached -= OnVideoEnd;
+            Debug.Log("Video Ended  " + videoPlayerVR.gameObject.name);
+        }
+        Debug.LogError("Spacebar is pressed" + OnSpacebarPress);
+
+        userQuestionData.GivenAnswer = timerController.currentTime.ToString();
+        if (timerController.isTimerRunning)
+        {
+            elapsedTime = 0;
+            elapsedTime = timerController.currentTime;
+
+            if (elapsedTime >= startTime && elapsedTime <= endTime)
+            {
+                Debug.Log("Time elapsed: " + elapsedTime + " seconds. It's within the specified range.");
+                userQuestionData.IsCorrectAnswer = true;
+            }
+            else
+            {
+                Debug.Log("Time elapsed: " + elapsedTime + " seconds. It's not within the specified range.");
+                userQuestionData.IsCorrectAnswer = false;
+            }
+
+            CheckSessionCompleted(); //Timed Spacebar is Pressed
+            // Stop the timer
+            timerController.isTimerRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// ACCURACY BASED
+    /// </summary>
+    public void SetupOptionsPanel()                                                                         //Sets Up Options Panel 
+    {
+        answerPanel.SetActive(true);
+        questionTextAnswerPanel.text = _question;
+        ClearList();
+        ButtonSetup();
+        answerPanelTimerText.SetActive(true);
+        answerPanelTimerText.GetComponent<TimerController>().onTimeLimitReached += CheckSessionCompleted;
+        answerPanelTimerText.GetComponent<TextMeshProUGUI>().text = "Time Left - 00:30";
+        answerPanelTimerText.GetComponent<TimerController>().isTimerRunning = false;
+        answerPanelTimerText.GetComponent<TimerController>().StartTimer(false, 30, "Time Left - 00:");                                       //COUNT DOWN
+    }
+
+    private void AnswerPanelTimer_onTimeLimitReached()                                                      //Goes To Check Session Complete
+    {
+        //Debug.Log("AnswerPanel Time Up");
+        answerPanelTimerText.GetComponent<TimerController>().ResetTimer();
+        answerPanelTimerText.GetComponent<TimerController>().onTimeLimitReached -= AnswerPanelTimer_onTimeLimitReached;
+        answerPanelTimerText.GetComponent<TimerController>().isTimerRunning = false;
+
+        if (userQuestionData.GivenAnswer == null)
+        {
+            userQuestionData.GivenAnswer = "Annswer is not selected";
+            userQuestionData.IsCorrectAnswer = false;
+            _givenAnsCount--;
+        }
+        CheckSessionCompleted();  //MCQ panel Timer Complete Also called on MCQ panel Submit
+    }
+
+    private void ClearList()
+    {
+
+        // Debug.Log("Answer button length" + _answerButtons.Count);
+        if (_answerButtons.Count > 0)
+        {
+            for (int i = _answerButtons.Count - 1; i >= 0; i--)
+            {
+                _answerButtons[i].AnswerSelectedEvent -= AnswerPressed;
+                Destroy(_answerButtons[i].gameObject);
+                _answerButtons.RemoveAt(i);
+            }
+            _answerButtons.Clear();
+        }
+        for (int i = newGridLayout.Count - 1; i >= 0; i--)
+        {
+
+            Destroy(newGridLayout[i].gameObject);
+            newGridLayout.RemoveAt(i);
+        }
+        newGridLayout.Clear();
+    }
+    private void ButtonSetup(/*bool hideSubmitButton*/)
+    {
+        GridLayoutGroup _answerGrid = _answerGridParent;
+        for (int i = 0; i < _possibleAnswers.Length; i++)
+        {
+            _answerButtons.Add(Instantiate(_answerButton, _answerGrid.transform));
+            _answerButtons[i].AddComponent<AnswerButton>();
+            _answerButtons[i].Setup(_possibleAnswers[i], i);
+            _answerButtons[i].interactable = true;
+            _answerButtons[i].AnswerSelectedEvent += AnswerPressed;
+
+            if (i + 1 == 4)
+            {
+                // Instantiate a new grid layout group under verticalGroup
+                newGridLayout.Add(Instantiate(_answerGridParentprefab, _answersRowParent.transform));
+
+                // Set the current group to the newly instantiated one
+                _answerGrid = newGridLayout[newGridLayout.Count - 1];
+            }
+        }
+    }
+
+    private void AnswerPressed(AnswerButton sender, int index)
+    {
+        userQuestionData.GivenAnswer = _possibleAnswers[index];
+        for (int i = 0; i < _answerButtons.Count; i++)
+        {
+            _answerButtons[i].SetHighlight(AnswerButton.ButtonState.UnSelected);
+        }
+        sender.SetHighlight(AnswerButton.ButtonState.Selected);
+        if (index == _correctIndex)
+        {
+            Debug.LogError("Correct answer");
+            userQuestionData.IsCorrectAnswer = true;
+        }
+
+        else
+        {
+            Debug.LogError("Wrong answer");
+            userQuestionData.IsCorrectAnswer = false;
+        }
+    }
+
+
+    public void CheckSessionCompleted()                //Called on the Answer Panel Submit
+    {
+        Debug.Log("CheckSessionCompleted");
+        answerPanelTimerText.GetComponent<TimerController>().isTimerRunning = false;
+        answerPanelTimerText.GetComponent<TimerController>().onTimeLimitReached -= CheckSessionCompleted;
+        answerPanelTimerText.GetComponent<TimerController>().ResetTimer();
+
+        if (userQuestionData.GivenAnswer == null)
+        {
+            userQuestionData.GivenAnswer = "Answer is not selected";
+            userQuestionData.IsCorrectAnswer = false;
+            _givenAnsCount--;
+        }
+
+
+        sessions.Questions.Add(userQuestionData);
+
+        Clearpanels();
+        if (!isTestExited)
+        {
+            if (QuizController.Instance.isCurrentSessionCompleted)
+            {
+                sessionCompletePanel.SetActive(true);
+                GameManager.Instance.activeUser.Sessions.Add(sessions);
+                SetSessionEndPannel();                                 //Session End Panel
+            }
+            else
+            {
+                QuizController.Instance.RollQuestion();
+                Debug.LogError("ROLL QUESTION OF Session IF NOT COMPLETE");
+                SetupQuestionPanel();
+            }
+        }
+        else
+        {
+            int currentSessionIndex = GameManager.Instance.quizManager.masterList.FindIndex(masterList => masterList.sessionType.ToString().Contains(sessions.SessionType));
+            if (sessions.Questions.Count < GameManager.Instance.quizManager.masterList[currentSessionIndex].questionData.Count)
+            {
+                for (int i = sessions.Questions.Count; i < GameManager.Instance.quizManager.masterList[currentSessionIndex].questionData.Count; i++)
+                {
+                    QuestionDataByUser question = new QuestionDataByUser();
+                    question.Question = GameManager.Instance.quizManager.masterList[currentSessionIndex].questionData[i].question;
+                    question.IsCorrectAnswer = false;
+                    question.GivenAnswer = "Answer is not selected";
+                    if (GameManager.Instance.isVrApplication)
+                    {
+                        question.CorrectAnswer = GameManager.Instance.quizManager.masterList[i].questionData[i].answersVR.ToList();
+                    }
+                    else
+                    {
+                        question.CorrectAnswer = GameManager.Instance.quizManager.masterList[i].questionData[i].answersDesktop.ToList();
+                    }
+                    sessions.Questions.Add(question);
+                }
+            }
+
+            GameManager.Instance.activeUser.Sessions.Add(sessions);
+            Debug.LogError($"activeUser.Sessions.Count ---> {GameManager.Instance.activeUser.Sessions.Count} : quizManager.masterList.Count---> {GameManager.Instance.quizManager.masterList.Count}");
+            if (GameManager.Instance.activeUser.Sessions.Count < GameManager.Instance.quizManager.masterList.Count)
+            {
+                for (int i = GameManager.Instance.activeUser.Sessions.Count; i < GameManager.Instance.quizManager.masterList.Count; i++)
+                {
+                    Session remainedSession = new Session();
+                    remainedSession.Questions = new List<QuestionDataByUser>();
+                    remainedSession.SessionType = GameManager.Instance.quizManager.masterList[i].sessionType.ToString();
+
+                    for (int j = 0; j < GameManager.Instance.quizManager.masterList[i].questionData.Count; j++)
+                    {
+                        QuestionDataByUser question = new QuestionDataByUser();
+                        question.Question = GameManager.Instance.quizManager.masterList[i].questionData[j].question;
+                        question.IsCorrectAnswer = false;
+                        question.GivenAnswer = "Answer is not selected";
+                        if (GameManager.Instance.isVrApplication)
+                        {
+                            question.CorrectAnswer = GameManager.Instance.quizManager.masterList[i].questionData[j].answersVR.ToList();
+                        }
+                        else
+                        {
+                            question.CorrectAnswer = GameManager.Instance.quizManager.masterList[i].questionData[j].answersDesktop.ToList();
+                        }
+                        remainedSession.Questions.Add(question);
+                    }
+                    GameManager.Instance.activeUser.Sessions.Add(remainedSession);
+                }
+            }
+            testEndPanel.SetActive(true);
+        }
+
+        //if (!_isDemoSession)
+        //{
+        //    QuizController.Instance.RollQuestion();
+        //}
+    }
+    public void SetSessionEndPannel()
+    {
+        sessionEndText.text = ConvertCamelCase(_sessionType.ToString());
+        attemptedQuestionText.text = $"You have answered {_givenAnsCount} out of {_totalQuestionCount} questions.";
+    }
+
+    public void CheckTestComplete()     //Attach it to the session complete button
+    {
+        Clearpanels();
+        if (QuizController.Instance.isTestCompleted)
+        {
+            GameManager.Instance.sessionManager.gameObject.SetActive(false);
+            testCompletedPanel.SetActive(true);
+        }
+
+
+        else
+        {
+            Debug.LogError("ROLL QUESTION OF TEST COMPLETE");
+            if (GameManager.Instance.sessionManager.sessionView.sessionPanelToggle.isOn)
+            {
+                GameManager.Instance.sessionManager.gameObject.SetActive(true);
+                GameManager.Instance.sessionManager.UpdateUserSessionList(_sessionType);
+            }
+            else
+            {
+                QuizController.Instance.RollQuestion();
+                SetupSessionInstructions();
+            }
+        }
+    }
+
+
+    public void Clearpanels()
+    {
+        //Debug.LogError("Cleared Panels");
+        for (int j = 0; j < panels.Length; j++)
+        {
+            panels[j].SetActive(false);
+        }
+    }
+
+    private void RandomizeChoices(ref QuizData data, int scrambleAmount = 20)
+    {
+        int tempIndex = data.CorrectIndex;
+        string[] answersCopy = (string[])data.Answers.Clone(); // Create a copy of the answers array
+
+        for (int i = 0; i < scrambleAmount; i++)
+        {
+            int index = UnityEngine.Random.Range(0, answersCopy.Length);
+            int newIndex = UnityEngine.Random.Range(0, answersCopy.Length);
+
+            if (index != newIndex)
+            {
+                string temp = answersCopy[newIndex];
+                answersCopy[newIndex] = answersCopy[index];
+                answersCopy[index] = temp;
+
+                if (index == tempIndex)
+                {
+                    tempIndex = newIndex;
+                }
+                else if (newIndex == tempIndex)
+                {
+                    tempIndex = index;
+                }
+            }
+        }
+        data.Answers = answersCopy; // Update the original answers array
+        data.CorrectIndex = tempIndex;
+        Debug.Log("Correct ans index----- " + data.CorrectIndex);
+        for (int i = 0; i < data.Answers.Length; i++)
+        {
+            Debug.Log("new array------- " + data.Answers[i]);
+        }
+    }
+
+    public string ConvertCamelCase(string camelCaseString)
+    {
+        // Check if the string is null or empty
+        if (string.IsNullOrEmpty(camelCaseString))
+            return string.Empty;
+
+        // Initialize a new StringBuilder to construct the output string
+        System.Text.StringBuilder result = new System.Text.StringBuilder();
+
+        // Iterate through each character in the camelCaseString
+        foreach (char c in camelCaseString)
+        {
+            // If the character is upper case, add a space before adding the character
+            if (char.IsUpper(c) && result.Length > 0)
+                result.Append(' ');
+
+            // Add the character to the result StringBuilder
+            result.Append(c);
+        }
+
+        // Return the result string
+        return result.ToString();
+    }
+
+    public void ShowResult()
+    {
+        GameManager.Instance.ShowResult();
+    }
+
+    public void OnClickButtonForQuizSession(GameObject button)
+    {
+        quizManager.panelManager.OnClickButton(button);
+    }
+
+    public void InstantiateInstructions()
+    {
+
+        foreach (TextMeshProUGUI obj in sessionInstructionsList)
+        {
+            if(obj != null)
+            {
+                Destroy(obj.gameObject);
+            }           
+        }
+        sessionInstructionsList.Clear();
+
+
+        foreach (TextMeshProUGUI number in instantiatedNumbers)
+        {
+            if(number != null)
+            {
+                Destroy(number.gameObject);
+            }           
+        }
+        
+        titleNumber = 1;
+
+        if (GenerateSessionInstructions.Instance.instructions.ContainsKey(_sessionType))
+        {
+            string[] instructionStrings = GenerateSessionInstructions.Instance.instructions[_sessionType];
+            foreach (string instruction in instructionStrings)
+            {
+                Debug.Log(instruction);
+                var sessionIns = Instantiate(instructionPrefab, parentTransform);
+                sessionInstructionsList.Add(sessionIns);
+                sessionIns.text = instruction;
+                Transform numberTransform = sessionIns.transform.Find("no");
+                if (numberTransform != null)
+                {
+                    // Get the TextMeshProUGUI component attached to the "no" child
+                    TextMeshProUGUI sessionNumber = numberTransform.GetComponent<TextMeshProUGUI>();
+                    if (sessionNumber != null)
+                    {
+                        // Set the text of the session number
+                        instantiatedNumbers.Add(sessionNumber);
+                        sessionNumber.text = titleNumber + "."; // or titleNumber.ToString() if you're incrementing titleNumber
+                        Debug.Log(sessionNumber.text);
+                        titleNumber++;
+                    }
+                    else
+                    {
+                        Debug.Log("TextMeshProUGUI component not found on child named 'no'");
+                    }
+                }
+                else
+                {
+                    Debug.Log("Child named 'no' not found in the instantiated prefab.");
+                }
+            }
+        }
+    }
+
+    public void InstantiateInstructionsOnPauseClick()
+    {
+        foreach(TextMeshProUGUI pauseInstruction in pauseInstructionsList)
+        {
+            if(pauseInstruction != null)
+            {
+                Destroy(pauseInstruction.gameObject);
+            }
+            
+        }
+
+        foreach(TextMeshProUGUI pauseSessionNumber in pauseInstantiatedNumbers)
+        {
+            if(pauseSessionNumber != null)
+            {
+                Destroy(pauseSessionNumber.gameObject);
+            }
+        }
+
+        pauseTitleNumber = 1;
+        string[] instructionStrings = GenerateSessionInstructions.Instance.instructions[_sessionType];
+        foreach (string instruction in instructionStrings)
+        {
+            Debug.Log("Pause Instruction Prefab: " + pauseInstructionPrefab);
+         
+            GameObject instructionText = Instantiate(pauseInstructionPrefab, pauseParentTransform);
+            TextMeshProUGUI pauseInstructionText = instructionText.GetComponent<TextMeshProUGUI>();
+            
+            if (instructionText != null)
+            {
+                pauseInstructionText.text = instruction;
+                pauseInstructionsList.Add(pauseInstructionText);
+            }
+            else
+            {
+                Debug.Log("Prefab is null");
+            }
+
+            Transform pauseNumberTransform = instructionText.transform.Find("no");
+            if(pauseNumberTransform != null)
+            {
+                TextMeshProUGUI pauseNumber = pauseNumberTransform.GetComponent<TextMeshProUGUI>();
+                pauseInstantiatedNumbers.Add(pauseNumber);
+                pauseNumber.text = pauseTitleNumber + ".";
+                pauseTitleNumber++;
+            }
+
+        }
+    }
+
+
+}
